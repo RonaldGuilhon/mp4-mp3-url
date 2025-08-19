@@ -1,0 +1,22 @@
+# Changelog - YouTube Downloader
+
+## Versão 1.0.0 (2024)
+
+### ✨ Novidades:
+- Interface gráfica completa
+- Suporte a playlists do YouTube
+- Download em MP4 e MP3
+- Seleção de itens individuais
+- Barra de progresso
+- Cancelamento de downloads
+- FFmpeg integrado
+
+### 🔧 Melhorias:
+- Executável portável
+- Sem dependências externas
+- Interface responsiva
+- Tratamento de erros
+
+### 🐛 Correções:
+- Estabilidade geral
+- Compatibilidade com Windows

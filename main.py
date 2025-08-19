@@ -1,11 +1,26 @@
 import yt_dlp
 import os
+import sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
 from pathlib import Path
 
-os.environ["PATH"] += os.pathsep + os.path.abspath("bin")
+# Detectar se está executando como executável PyInstaller
+if getattr(sys, 'frozen', False):
+    # Executando como executável
+    application_path = sys._MEIPASS
+    bin_path = os.path.join(application_path, 'bin')
+else:
+    # Executando como script Python
+    application_path = os.path.dirname(os.path.abspath(__file__))
+    bin_path = os.path.join(application_path, 'bin')
+
+# Adicionar pasta bin ao PATH se ela existir
+if os.path.exists(bin_path):
+    os.environ["PATH"] = bin_path + os.pathsep + os.environ["PATH"]
+else:
+    print(f"Aviso: Pasta bin não encontrada em {bin_path}")
 
 class YouTubeDownloaderGUI:
     def __init__(self, root):
@@ -125,7 +140,10 @@ class YouTubeDownloaderGUI:
                 opcoes = {
                     'quiet': True,
                     'no_warnings': True,
-                    'extract_flat': True
+                    'extract_flat': True,
+                    'ignoreerrors': True,
+                    'no_check_certificate': True,
+                    'playlistend': 100  # Limitar a 100 itens para evitar timeouts
                 }
                 
                 with yt_dlp.YoutubeDL(opcoes) as ydl:
@@ -146,14 +164,35 @@ class YouTubeDownloaderGUI:
             widget.destroy()
         self.playlist_items.clear()
         
-        if 'entries' in info:  # É uma playlist
-            self.status_label.config(text=f"Playlist encontrada com {len(info['entries'])} itens")
+        if 'entries' in info and info['entries']:  # É uma playlist
+            # Filtrar entradas válidas
+            valid_entries = [entry for entry in info['entries'] if entry is not None]
             
-            for i, entry in enumerate(info['entries']):
-                if entry:
+            if not valid_entries:
+                self.status_label.config(text="Playlist vazia ou inacessível")
+                messagebox.showwarning("Aviso", "A playlist não contém vídeos válidos ou está inacessível.")
+                return
+            
+            self.status_label.config(text=f"Playlist encontrada com {len(valid_entries)} itens")
+            
+            for i, entry in enumerate(valid_entries):
+                try:
                     var = tk.BooleanVar(value=True)
                     title = entry.get('title', f'Item {i+1}')
-                    duration = entry.get('duration_string', 'N/A')
+                    
+                    # Melhor tratamento de duração
+                    duration = entry.get('duration_string', '')
+                    if not duration:
+                        duration_sec = entry.get('duration')
+                        if duration_sec:
+                            mins, secs = divmod(int(duration_sec), 60)
+                            duration = f"{mins}:{secs:02d}"
+                        else:
+                            duration = 'N/A'
+                    
+                    # Truncar títulos muito longos
+                    if len(title) > 80:
+                        title = title[:77] + "..."
                     
                     frame = ttk.Frame(self.scrollable_frame)
                     frame.pack(fill=tk.X, padx=5, pady=2)
@@ -161,16 +200,35 @@ class YouTubeDownloaderGUI:
                     cb = ttk.Checkbutton(frame, variable=var, text=f"{title} ({duration})")
                     cb.pack(anchor=tk.W)
                     
+                    # Construir URL do vídeo
+                    video_url = entry.get('url', '')
+                    if not video_url and entry.get('id'):
+                        video_url = f"https://www.youtube.com/watch?v={entry['id']}"
+                    
                     self.playlist_items.append({
                         'var': var,
-                        'url': entry.get('url', ''),
+                        'url': video_url,
                         'title': title,
                         'id': entry.get('id', '')
                     })
+                    
+                except Exception as e:
+                    print(f"Erro ao processar item {i}: {e}")
+                    continue
+                    
         else:  # É um vídeo único
             self.status_label.config(text="Vídeo único detectado")
             title = info.get('title', 'Vídeo')
-            duration = info.get('duration_string', 'N/A')
+            
+            # Melhor tratamento de duração para vídeo único
+            duration = info.get('duration_string', '')
+            if not duration:
+                duration_sec = info.get('duration')
+                if duration_sec:
+                    mins, secs = divmod(int(duration_sec), 60)
+                    duration = f"{mins}:{secs:02d}"
+                else:
+                    duration = 'N/A'
             
             var = tk.BooleanVar(value=True)
             frame = ttk.Frame(self.scrollable_frame)
@@ -189,7 +247,18 @@ class YouTubeDownloaderGUI:
     def erro_verificacao(self, erro):
         self.progress.stop()
         self.status_label.config(text="Erro ao verificar URL")
-        messagebox.showerror("Erro", f"Erro ao processar URL:\n{erro}")
+        
+        # Mensagens de erro mais amigáveis
+        if "Private video" in erro or "This video is private" in erro:
+            messagebox.showerror("Erro", "Este vídeo é privado e não pode ser acessado.")
+        elif "Video unavailable" in erro:
+            messagebox.showerror("Erro", "Vídeo indisponível. Pode ter sido removido ou estar restrito.")
+        elif "Playlist does not exist" in erro:
+            messagebox.showerror("Erro", "Playlist não encontrada. Verifique se a URL está correta.")
+        elif "Sign in to confirm your age" in erro:
+            messagebox.showerror("Erro", "Este conteúdo requer confirmação de idade. Tente com outro vídeo.")
+        else:
+            messagebox.showerror("Erro", f"Erro ao processar URL:\n{erro}")
     
     def selecionar_todos(self):
         for item in self.playlist_items:
